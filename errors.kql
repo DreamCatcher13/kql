@@ -1,0 +1,15 @@
+ApiManagementGatewayLogs
+| where TimeGenerated > ago(4h)
+| where Url !has "/api/health"
+    and Url has "mysite.com/Read/"
+    and ResponseCode between (500 .. 599) 
+| project TimeGenerated, Url, ResponseCode
+| sort by TimeGenerated desc
+//| render scatterchart
+
+StorageBlobLogs
+| where TimeGenerated > ago(4h)
+| where OperationName has "Copyblob" 
+    and Uri has "/failed"
+| summarize count() by bin(TimeGenerated, 5m), ObjectKey
+| render columnchar

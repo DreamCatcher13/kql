@@ -1,0 +1,74 @@
+Perf
+| where TimeGenerated between (todatetime('2023-08-06 20:59:59.9') .. todatetime('2023-08-08 20:59:59.9')) // to get GMT+3
+// |  where _ResourseId has "myVM"
+| where ObjectName == "Process" 
+    and CounterName == "Working Set"
+    and InstanceName !in ("_Total", "Idle")
+| extend mmrGB = CounterValue / 1024 / 1024 / 1024
+| where mmrGB >= 0.1
+| summarize UsedMmrGBperMin = round(avg(mmrGB), 2) by TimeGenerated, InstanceName
+| sort by TimeGenerated, UsedMmrGBperMin desc 
+| render timechart 
+
+// DASHBOARD
+
+    // memory usage
+Perf  
+| where TimeGenerated > ago(1h)
+| where ObjectName == "Memory"
+    and CounterName == "Available Bytes"
+    and _ResourceId has '/prod-vm'
+| summarize FreeMemoryGB = avg(CounterValue) / 1024 / 1024 / 1024 by bin(TimeGenerated, 1m)
+| extend UsedMemoryGB = (16 - FreeMemoryGB) // summarize average counter value
+| render timechart with (ysplit=axes)
+
+    // processess on VM
+Perf
+| where TimeGenerated > ago(4h)
+| where ObjectName == "Process" 
+    and CounterName == "% Processor Time"
+    and InstanceName !in ("_Total", "Idle")
+    and _ResourceId has '/prod-vm'
+//and not(InstanceName matches regex "svchost.*")
+| where CounterValue / 2 >= 1  // divided by 2 because 2 vCPU
+| summarize CPUperMin = avg(CounterValue / 2) by TimeGenerated, InstanceName
+| render timechart with(ymax=100)
+
+    // user login, but it will show ID, not username
+Event
+| where TimeGenerated > ago(30d)
+| where _ResourceId has "/prod-vm"
+| where EventID in (7001, 7002) // and isempty(Message)
+| sort by TimeGenerated desc 
+| extend userID = extract("(S-.*)(<.*)", 1, ParameterXml)
+| extend type = extract("User Logo.{1}.?", 0, RenderedDescription)
+| project TimeGenerated, userID, type
+
+    // automation account some info
+AzureDiagnostics 
+| where TimeGenerated > ago(7d)
+| where ResultType in ("Completed", "Failed", "Suspended", "Stopped")
+| summarize count() by ResultType
+| render piechart 
+
+AzureDiagnostics 
+| where TimeGenerated > ago(7d)
+| where ResultType in ("Completed", "Failed", "Suspended", "Stopped")
+| sort by TimeGenerated desc 
+| project TimeGenerated, RunbookName_s, ResultType
+
+AzureDiagnostics 
+| where TimeGenerated > ago(7d)
+| where StreamType_s in ("Error", "Warning")
+    and ResultDescription !contains "Both Az"
+| project TimeGenerated, RunbookName_s, OperationName, ResultType, StreamType_s, ResultDescription 
+
+    // updates for VM
+Update
+| where ResourceId has "myVM"
+| where UpdateState == "Needed" 
+| summarize arg_max(TimeGenerated, *) by KBID
+| project Computer, Classification, Title, KBID
+
+
+
